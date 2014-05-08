@@ -405,12 +405,12 @@ int main()
 		Floc2 = h_Cor[i].loc_Wind2 % frames;
 		Yloc1 = (h_Cor[i].loc_Wind1-Floc1)/frames;//floor((h_Cor[i].loc_Wind1/imageY));
 		Yloc2 = (h_Cor[i].loc_Wind2-Floc2)/frames;
-		Xloc1 = Yloc1%imageX;
-		Yloc1 = (Yloc1 - Xloc1)/imageX;
-		Xloc2 = Yloc2%imageX;
-		Yloc2 = (Yloc2 - Xloc2)/imageX;
-		Xloc1 += 1;
-		Xloc2 += 1;
+		//Xloc1 = Yloc1%imageX;
+		//Yloc1 = (Yloc1 - Xloc1)/imageX;
+		//Xloc2 = Yloc2%imageX;
+		//Yloc2 = (Yloc2 - Xloc2)/imageX;
+		//Xloc1 += 1;
+		//Xloc2 += 1;
 		Yloc1 += 1;
 		Yloc2 += 1;
 		//if (~Yloc1)
@@ -419,7 +419,7 @@ int main()
 		//Yloc2 = (h_Cor[i].loc_Wind2-Floc2) - (Xloc2*imageY);
 		//if (~Yloc2)
 		//	Yloc2=imageX;
-		fprintf(fpw, "%d\t%d\t%d\t%d\t%d\t%d\t%f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+		printf("%d\t%d\t%d\t%d\t%f\n",Yloc1, Floc1,Yloc2, Floc2, h_Cor[i].loc_corrCoef);
 //		fprintf(fpw, "%d\t%d\t%d\t%d\t%d\t%d\t%f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
 //		fprintf(fpw, "Pt1(x,y,f) = %d,%d,%d Pt2(x,y,f) = %d,%d,%d Xcorr = %f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
 	}
