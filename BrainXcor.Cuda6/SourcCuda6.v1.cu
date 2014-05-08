@@ -390,6 +390,7 @@ int main()
 
 
 	//write out the data to a file
+
 	FILE *fpw;
 	char filew[512];
 	sprintf(filew,"%s.pair.txt","cor_weights");
