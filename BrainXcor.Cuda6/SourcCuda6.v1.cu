@@ -123,15 +123,14 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 	{
 		for(int i = 0, j = xIdx; xIdx < X-1 - i;j = xIdx, i++) //increment through all PL data points
 		{
-			//		if(xIdx < N-i) //not at end of file
-			//	{
 			Index = corCount - ((X-i) * (X-i - 1))/2; //this needs to be checked
 			winStart = i; //index of the window
 			window1 = d_PL[winStart].win;
 			sdev1 = d_PL[winStart].sDev;
-				//get pixel values for correlation's Master window
-			if(xIdx < Wsize)
-				window[xIdx] = d_Pixels[window1 + xIdx];
+			//get pixel values for correlation's Master window
+			//MUST use threadIdx not xIdx window must exists in each block.
+			if(threadIdx.x < Wsize)
+				window[threadIdx.x] = d_Pixels[window1 + threadIdx.x]; // check this...
 			__syncthreads();
 
 			//roll through all the data for this window
@@ -151,6 +150,9 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 					x2 += SumPt2;
 					Sum_X1X2 += window[l] * SumPt2;
 				}
+				//x1 = ((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);	
+				//if(x1 == 0)
+				//	x1 = x1;
 				d_Cor[j + Index].loc_corrCoef = ((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);	
 				d_Cor[j + Index].loc_Wind1 = window1;	
 				d_Cor[j + Index].loc_Wind2 = window2;	
@@ -331,6 +333,8 @@ int main()
 	//use memory on Host for Kernel not Device due to Size of Array
 	cudaHostAlloc((void**)&h_Cor, sizeof(PixelxCor) * corSize, cudaHostAllocMapped);
 
+	memset(h_Cor, 5, sizeof(PixelxCor) * corSize);
+
 	//get the address for Kernel write to output array
 	cudaHostGetDevicePointer(&d_Cor, h_Cor, 0);
 
@@ -380,6 +384,10 @@ int main()
 	int Xloc1, Yloc1, Floc1;
 	int Xloc2, Yloc2, Floc2;
 
+	//for(int i = 0; i < corSize; i++)
+	//	if(int(100 * h_Cor[i].loc_corrCoef) < 1)
+	//		continue;
+
 
 	//write out the data to a file
 	FILE *fpw;
@@ -389,21 +397,32 @@ int main()
 	{
 		printf("cannot open file\n");
 	}
-	//for(int i = 0; i < corSize; i++)
-	//{
-	//	Floc1 = h_Cor[i].loc_Wind1 % frames;
-	//	Floc2 = h_Cor[i].loc_Wind2 % frames;
-	//	Xloc1 = floor((h_Cor[i].loc_Wind1/imageY));
-	//	Yloc1 = (h_Cor[i].loc_Wind1-Floc1) - (Xloc1*imageY);
-	//	Xloc1 = Xloc1 + 1;
-	//	if (~Yloc1)
-	//		Yloc1=imageX;
-	//	Xloc2 = floor((h_Cor[i].loc_Wind2-Floc2)/imageY);
-	//	Yloc2 = (h_Cor[i].loc_Wind2-Floc2) - (Xloc2*imageY);
-	//	if (~Yloc2)
-	//		Yloc2=imageX;
-	//	fprintf(fpw, "Pt1(x,y,f) = %d,%d,%d; Pt2(x,y,f) = %d,%d,%d; Xcorr = %f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
-	//}
+		fprintf(fpw, "\tPt1\t\t\t\Pt2\t\tXcorr\nX\tY\tF\tX\tY\tF\t\n");
+//		fprintf(fpw, "\tPt1\t\t\t\tPt2\t\tXcorr\nX\tY\tF\tX\tY\tF\t\n");
+	for(int i = 0; i < corSize; i++)
+	{
+		Floc1 = h_Cor[i].loc_Wind1 % frames;
+		Floc2 = h_Cor[i].loc_Wind2 % frames;
+		Yloc1 = (h_Cor[i].loc_Wind1-Floc1)/frames;//floor((h_Cor[i].loc_Wind1/imageY));
+		Yloc2 = (h_Cor[i].loc_Wind2-Floc2)/frames;
+		Xloc1 = Yloc1%imageX;
+		Yloc1 = (Yloc1 - Xloc1)/imageX;
+		Xloc2 = Yloc2%imageX;
+		Yloc2 = (Yloc2 - Xloc2)/imageX;
+		Xloc1 += 1;
+		Xloc2 += 1;
+		Yloc1 += 1;
+		Yloc2 += 1;
+		//if (~Yloc1)
+		//	Yloc1=imageX;
+		//Xloc2 = floor((h_Cor[i].loc_Wind2-Floc2)/imageY);
+		//Yloc2 = (h_Cor[i].loc_Wind2-Floc2) - (Xloc2*imageY);
+		//if (~Yloc2)
+		//	Yloc2=imageX;
+		fprintf(fpw, "%d\t%d\t%d\t%d\t%d\t%d\t%f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+//		fprintf(fpw, "%d\t%d\t%d\t%d\t%d\t%d\t%f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+//		fprintf(fpw, "Pt1(x,y,f) = %d,%d,%d Pt2(x,y,f) = %d,%d,%d Xcorr = %f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+	}
 
 	fclose(fpw);
 	cudaFreeHost(h_Cor);
