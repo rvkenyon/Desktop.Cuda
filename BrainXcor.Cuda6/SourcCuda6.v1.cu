@@ -115,7 +115,7 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 	//here d_Cor is on Host not Device
 	int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
-	float x1, x2, SumPt2, Sum_X1X2,sdev1,sdev2;
+	float x1, x2, SumPt2, Sum_X1X2,sdev1,sdev2,x14;
 	int winStart, window1,window2, Index,temp2,temp3; //change yIdx and xIdx
 
 	// find local point only for xcorr with window
@@ -150,10 +150,11 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 					x2 += SumPt2;
 					Sum_X1X2 += window[l] * SumPt2;
 				}
-				//x1 = ((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);	
-				//if(x1 == 0)
-				//	x1 = x1;
-				d_Cor[j + Index].loc_corrCoef = ((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);	
+				x14 = ((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);	
+				//if(x14 > 1)
+				//	x14 = x14;
+//				((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);	
+				d_Cor[j + Index].loc_corrCoef = x14;
 				d_Cor[j + Index].loc_Wind1 = window1;	
 				d_Cor[j + Index].loc_Wind2 = window2;	
 
@@ -249,7 +250,7 @@ int main()
 			(int)devProps.clockRate);
 	}
 	int const gridLimit = devProps.maxGridSize[0];
-	int const thredMax = devProps.maxThreadsPerBlock;
+	int  thredMax = devProps.maxThreadsPerBlock;
 
 	const dim3 blockSize(Xt, Yt, 1);  //TODO
 	const dim3 gridSize(Gx,Gy, 1);  //TODO
@@ -347,6 +348,7 @@ int main()
 	//	Indexing[idx] = corSize - ((N1-idx) * (N1-idx - 1))/2; //this needs to be checked
 
 	//now do xcorrelation
+	thredMax /= 2;
 	int  blocks = (N+thredMax-1)/thredMax;
 	if(blocks > gridLimit) blocks = gridLimit;
 
@@ -391,6 +393,7 @@ int main()
 
 	//write out the data to a file
 
+
 	FILE *fpw;
 	char filew[512];
 	sprintf(filew,"%s.pair.txt","cor_weights");
@@ -398,8 +401,11 @@ int main()
 	{
 		printf("cannot open file\n");
 	}
-		fprintf(fpw, "\tPt1\t\t\t\Pt2\t\tXcorr\nX\tY\tF\tX\tY\tF\t\n");
-//		fprintf(fpw, "\tPt1\t\t\t\tPt2\t\tXcorr\nX\tY\tF\tX\tY\tF\t\n");
+	//		printf("\tPt1\t\t\t\Pt2\t\tXcorr\nX\tY\tF\tX\tY\tF\t\n");
+	//		fprintf(fpw, "\tPt1\t\t\t\tPt2\t\tXcorr\nX\tY\tF\tX\tY\tF\t\n");
+	//		printf("\tPt\#1\tFrm#\t\t\Pt\#2\t\Frm#\tXcorr\n");
+	//	fprintf(fpw, "\tPt\#1\tFrm#\t\t\Pt\#2\t\Frm#\tXcorr\n");
+	fprintf(fpw, "Pt#1\tFrm#\t\Pt#2\t\Frm#\tXcorr\n");
 	for(int i = 0; i < corSize; i++)
 	{
 		Floc1 = h_Cor[i].loc_Wind1 % frames;
@@ -418,11 +424,13 @@ int main()
 		//	Yloc1=imageX;
 		//Xloc2 = floor((h_Cor[i].loc_Wind2-Floc2)/imageY);
 		//Yloc2 = (h_Cor[i].loc_Wind2-Floc2) - (Xloc2*imageY);
+		fprintf(fpw, "%d\t%d\t%d\t%d\t%f\n",Yloc1, Floc1,Yloc2, Floc2, h_Cor[i].loc_corrCoef);
 		//if (~Yloc2)
 		//	Yloc2=imageX;
-		printf("%d\t%d\t%d\t%d\t%f\n",Yloc1, Floc1,Yloc2, Floc2, h_Cor[i].loc_corrCoef);
-//		fprintf(fpw, "%d\t%d\t%d\t%d\t%d\t%d\t%f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
-//		fprintf(fpw, "Pt1(x,y,f) = %d,%d,%d Pt2(x,y,f) = %d,%d,%d Xcorr = %f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+		//		fprintf(fpw, "%d\t%d\t%d\t%d\t%f\n",Yloc1, Floc1,Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+		//		printf("%d\t%d\t%d\t%d\t%f\n",Yloc1, Floc1,Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+		//		fprintf(fpw, "%d\t%d\t%d\t%d\t%d\t%d\t%f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
+		//		fprintf(fpw, "Pt1(x,y,f) = %d,%d,%d Pt2(x,y,f) = %d,%d,%d Xcorr = %f\n",Xloc1, Yloc1, Floc1, Xloc2, Yloc2, Floc2, h_Cor[i].loc_corrCoef);
 	}
 
 	fclose(fpw);
