@@ -111,7 +111,7 @@ using namespace std;
 //this where thread acts on the same window to Xcorr
 __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor, int X, int corCount, int Wsize)
 {
-	__shared__ int window[h_Wsize];
+	extern __shared__ int window[];
 	//here d_Cor is on Host not Device
 	int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -352,7 +352,7 @@ int main()
 	int  blocks = (N+thredMax-1)/thredMax;
 	if(blocks > gridLimit) blocks = gridLimit;
 
-	XcrossCUDA_same<<<blocks, thredMax>>>(d_Pixels, d_PL,  d_Cor, N1, corSize, h_Wsize);
+	XcrossCUDA_same<<<blocks, thredMax, h_Wsize * sizeof(int)>>>(d_Pixels, d_PL,  d_Cor, N1, corSize, h_Wsize);
 
 	cudaDeviceSynchronize(); 
 	cudaGetLastError();
