@@ -113,24 +113,30 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 {
 	extern __shared__ int window[];
 	//here d_Cor is on Host not Device
-	int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
+	unsigned int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
 	float x1, x2, SumPt2, Sum_X1X2,sdev1,sdev2,x14;
-	int winStart, window1,window2, Index,temp2,temp3; //change yIdx and xIdx
+	unsigned int winStart, window1,window2, Index; //change yIdx and xIdx
 
 	// find local point only for xcorr with window
 	if(xIdx < X-1)
 	{
 		for(int i = 0, j = xIdx; xIdx < X-1 - i;j = xIdx, i++) //increment through all PL data points
 		{
+			__syncthreads();
 			Index = corCount - ((X-i) * (X-i - 1))/2; //this needs to be checked
 			winStart = i; //index of the window
 			window1 = d_PL[winStart].win;
 			sdev1 = d_PL[winStart].sDev;
 			//get pixel values for correlation's Master window
 			//MUST use threadIdx not xIdx window must exists in each block.
-			if(threadIdx.x < Wsize)
-				window[threadIdx.x] = d_Pixels[window1 + threadIdx.x]; // check this...
+			if(threadIdx.x == 0)
+				{
+					for(int ii = 0; ii < Wsize; ii++)
+					{
+						window[ii] = d_Pixels[window1 + ii]; // check this...
+					}
+				}
 			__syncthreads();
 
 			//roll through all the data for this window
@@ -167,12 +173,12 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 
 __global__ void StdDev(int* d_Pixels, pixelLoc* d_PL,  int Wsize, int frames,  int yTotal, twoD numProcThds, int devThres)
 {
-	int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
-	int yIdx = blockIdx.y * blockDim.y + threadIdx.y;
+	unsigned int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
+	unsigned int yIdx = blockIdx.y * blockDim.y + threadIdx.y;
 
 	float temp, x1=0.f, x2=0.f;
-	int xyStart; //where to start reading the window
-	int outStart;   //output file indexing
+	unsigned int xyStart; //where to start reading the window
+	unsigned int outStart;   //output file indexing
 	if(xIdx < numProcThds.x && yIdx < numProcThds.y)
 	{
 		while(yIdx < yTotal)
@@ -184,7 +190,7 @@ __global__ void StdDev(int* d_Pixels, pixelLoc* d_PL,  int Wsize, int frames,  i
 			x1 = x2 = 0.;
 			for(int i = 0; i < Wsize; i++)
 			{
-				temp = d_Pixels[xyStart + i];
+				temp = (float)d_Pixels[xyStart + i];
 				x1 += temp;
 				x2 += temp * temp; 
 			}
