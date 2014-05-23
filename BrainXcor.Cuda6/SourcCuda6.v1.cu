@@ -5,7 +5,9 @@
 #include <cuda.h>
 #include <stdlib.h>
 #include <ctime>
-#include "stdio.h"
+#include <cmath>
+//#include "stdio.h"
+#include <stdio.h>
 #include <cstdio>
 #include <cassert>
 #include <cuda_runtime.h>
@@ -35,14 +37,14 @@ typedef struct{
 	float loc_corrCoef;
 } PixelxCor;
 
-int const Gy = 32; //grid y dimension
-int const Gx = 4; //grid x dimension
-int const Xt = 512; //thread x dimension
+const int Gy = 32; //grid y dimension
+const int Gx = 4; //grid x dimension
+const int Xt = 512; //thread x dimension
 //int const Gx = 1920; //grid x dimension
 //int const Xt = 1; //thread x dimension
-int const Yt = 1; //32//thread y dimension
-int const Fx = 2000; //number of frames
-int const h_Wsize = 50;
+const int Yt = 1; //32//thread y dimension
+const int Fx = 2000; //number of frames
+const int h_Wsize = 50;
 
 
 using namespace std;
@@ -116,6 +118,13 @@ static void HandleError( cudaError_t err, const char *file, int line ) {
 		exit( EXIT_FAILURE );
 	}
 }
+
+
+__global__ void print_kernel() {
+    printf("Hello from block %d, thread %d\n", blockIdx.x, threadIdx.x);
+}
+
+
 
 //this where thread acts on the same window to Xcorr
 __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor, int X, int corCount, int Wsize)
@@ -219,11 +228,11 @@ int main()
 	numProcThds.x = Fx - h_Wsize; //used in Stdev kernel for total number threads X direction
 	numProcThds.y = Gy*Yt;//used in Stdev kernel for total number threads Y direction
 
-	int const count = Fx*Gy*Yt; //Fx=MaxX, Gy * Yt = maxY for data file
-	int const imageX = 172;  //size of Image used ... columns
-	int const imageY = 130; //size of Image used ... rows
-	int const totalPixs = imageX * imageY; //total pixel number for image
-	int const readSize = Fx * totalPixs; //total memory size of all data
+	const int count = Fx*Gy*Yt; //Fx=MaxX, Gy * Yt = maxY for data file
+	const int imageX = 172;  //size of Image used ... columns
+	const int imageY = 130; //size of Image used ... rows
+	const int totalPixs = imageX * imageY; //total pixel number for image
+	const int readSize = Fx * totalPixs; //total memory size of all data
 	int devThres = 35;
 	int procsrTot = numProcThds.x*numProcThds.y;
 	int Xloc1, Yloc1, Floc1; //used for X,Y,Frame for Point 1
@@ -231,13 +240,18 @@ int main()
 	int deviceCount;
 	int *d_Pixels;   //device version of h_Pixels
 	int *h_Pixels = new int[readSize];  //used to hold pixel values
+	int thredMax;
+	int frames = Fx;
 	int i = 0, N;
 	int size_file=0;
 	int abc = sizeof(int);
-	int  asd=sizeof(pixelLoc);
+	int asd=sizeof(pixelLoc);
+	int dev = 0;
+	int *Pixels;
 
 	pixelLoc *d_PL; //device version of h_PL
 	pixelLoc *PL,*h_PL = new pixelLoc[readSize];  //used to hold Stdev values
+	PixelxCor *h_Cor;
 	PixelxCor *d_Cor;  //device version of h_Cor
 	cudaError_t  code;
 
@@ -252,9 +266,7 @@ int main()
 		exit(EXIT_FAILURE);
 	}
 
-	int dev = 0;
 	cudaSetDevice(dev);
-	int *Pixels;
 	cudaDeviceProp devProps;
 
 
@@ -266,8 +278,12 @@ int main()
 			(int)devProps.major, (int)devProps.minor, 
 			(int)devProps.clockRate);
 	}
-	int const gridLimit = devProps.maxGridSize[0];
-	int  thredMax = devProps.maxThreadsPerBlock; //devProps.maxThreadsPerBlock;
+
+//	print_kernel<<<10, 10>>>();
+//    cudaDeviceSynchronize();
+
+	const int gridLimit = devProps.maxGridSize[0];
+	thredMax = devProps.maxThreadsPerBlock; //devProps.maxThreadsPerBlock;
 
 	const dim3 blockSize(Xt, Yt, 1);  //TODO
 	const dim3 gridSize(Gx,Gy, 1);  //TODO
@@ -279,7 +295,6 @@ int main()
 	//cudaMallocManaged(&Pixels, sizeof(int) * readSize); 
 	//cudaMallocManaged(&PL, sizeof(pixelLoc) * readSize);
 
-	int frames = Fx;
 
 	std::ifstream fin("d:/data/file_.bin", std::ios::binary);
 	fin.read(reinterpret_cast<char*>(h_Pixels), sizeof(int) * readSize);
@@ -317,9 +332,6 @@ int main()
 	//run kernel for finding Standard Deviation of data
 	StdDev<<<gridSize, blockSize>>>(d_Pixels, d_PL, h_Wsize, frames, totalPixs, numProcThds, devThres);
 
-	//rearrange the Loc file for xcorr in next cuda function
-
-
 	//wait for all to finish and copy data to host
 	cudaDeviceSynchronize(); 
 	code = cudaGetLastError();
@@ -338,30 +350,31 @@ int main()
 		//	cout<<"std = "<<h_PL[i].sDev<<"   "<<h_PL[i].win<<endl;
 		//	}
 		if(h_PL[i].sDev > 0)
-		{
 			h_PL[j++] = h_PL[i];
-		}
 	}
 
 	N = j;
 	cudaFree(d_PL);
 	cudaFree(d_Pixels);
 	HANDLE_ERROR(cudaMalloc((void**) &d_PL, sizeof(pixelLoc) * N));
-
 	HANDLE_ERROR(cudaMalloc((void**) &d_Pixels, sizeof(int) * readSize));
-	int const N1 = N +1;
+
+	const int N1 = N +1;
 	unsigned int const corSize = N1*(N1-1)/2;
-	PixelxCor *h_Cor;
+	unsigned int trmp = corSize*sizeof(PixelxCor);
+	double tp = pow(2.,32.)*sizeof(PixelxCor);
+	if(trmp > tp)
+		fprintf(stderr, "h_Cor is larger than 4GB!!\n");
+
+	//do the regular stuff for passing arrays to Kernel
+	HANDLE_ERROR(cudaMemcpy((void*) d_Pixels, h_Pixels, sizeof(int) * readSize, cudaMemcpyHostToDevice));
+	HANDLE_ERROR(cudaMemcpy((void*) d_PL, h_PL, sizeof(pixelLoc) * N, cudaMemcpyHostToDevice));
 
 	//use memory on Host for Kernel not Device due to Size of Array
 	HANDLE_ERROR(cudaHostAlloc((void**)&h_Cor, sizeof(PixelxCor) * corSize, cudaHostAllocMapped));
 
 	//get the address for Kernel write to output array
 	HANDLE_ERROR(cudaHostGetDevicePointer(&d_Cor, h_Cor, 0));
-
-	//do the regular stuff for passing arrays to Kernel
-	HANDLE_ERROR(cudaMemcpy((void*) d_Pixels, h_Pixels, sizeof(int) * readSize, cudaMemcpyHostToDevice));
-	HANDLE_ERROR(cudaMemcpy((void*) d_PL, h_PL, sizeof(pixelLoc) * N, cudaMemcpyHostToDevice));
 
 	//int *Indexing = new int[300000];
 	//for(int idx = 0; idx < N; idx++)
@@ -381,7 +394,7 @@ int main()
 	delete[] h_Pixels;
 	cudaFree(d_Pixels);
 
-	HANDLE_ERROR(cudaMemcpy(h_Cor, d_Cor, sizeof(float) * corSize, cudaMemcpyDeviceToHost));
+//	HANDLE_ERROR(cudaMemcpy(h_Cor, d_Cor, sizeof(float) * corSize, cudaMemcpyDeviceToHost));
 
 	//	int ja = 0;
 	//	float *pp = new float[300000];
@@ -411,7 +424,7 @@ int main()
 
 	FILE *fpw;
 	char filew[512];
-	sprintf(filew,"%s.pair.txt","cor_weights");
+	sprintf(filew,"d:/data/%s.pair.txt","cor_weights");
 	if ((fpw = fopen(filew,"w"))==NULL)
 	{
 		printf("cannot open file\n");
