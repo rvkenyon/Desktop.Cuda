@@ -127,32 +127,32 @@ __global__ void print_kernel() {
 
 
 //this where thread acts on the same window to Xcorr
-__global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor, int X, int corCount, int Wsize)
+__global__ void XcrossCUDA_same(int* Pixels, pixelLoc* PL, PixelxCor* Cor, int X, int corCount, int Wsize)
 {
 	extern __shared__ int window[];
 	//here d_Cor is on Host not Device
 	unsigned int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
 
 	float x1, x2, SumPt2, Sum_X1X2,sdev1,sdev2;
-	unsigned int winStart, window1,window2, Index; //change yIdx and xIdx
+	unsigned long int winStart, window1,window2, Index, j = xIdx; //change yIdx and xIdx
 
 	// find local point only for xcorr with window
 	if(xIdx < X-1)
 	{
-		for(int i = 0, j = xIdx; xIdx < X-1 - i;j = xIdx, i++) //increment through all PL data points
+		for(int i = 0; xIdx < X-1 - i;j = xIdx, i++) //increment through all PL data points
 		{
 			__syncthreads();  //need this so wndow not changed while still in use.
 			Index = corCount - ((X-i) * (X-i - 1))/2; //this needs to be checked
 			winStart = i; //index of the window
-			window1 = d_PL[winStart].win;
-			sdev1 = d_PL[winStart].sDev;
+			window1 = PL[winStart].win;
+			sdev1 = PL[winStart].sDev;
 			//get pixel values for correlation's Master window
 			//MUST use threadIdx not xIdx window must exists in each block.
 			if(threadIdx.x == 0)
 			{
 				for(int ii = 0; ii < Wsize; ii++)
 				{
-					window[ii] = d_Pixels[window1 + ii]; // check this...
+					window[ii] = Pixels[window1 + ii]; // check this...
 				}
 			}
 			__syncthreads();
@@ -160,8 +160,8 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 			//roll through all the data for this window
 			while(j < X-1-i)
 			{
-				window2 = d_PL[winStart+j].win;
-				sdev2 = d_PL[winStart+j].sDev;
+				window2 = PL[winStart+j].win;
+				sdev2 = PL[winStart+j].sDev;
 
 				//if point is valid then begin correlations
 				x1 = x2 = Sum_X1X2 = 0.;
@@ -169,7 +169,7 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 				// do the actual cross correlation now
 				for (int l = 0; l < Wsize; l++)
 				{
-					SumPt2 = d_Pixels[window2 + l];
+					SumPt2 = Pixels[window2 + l];
 					x1 += window[l];
 					x2 += SumPt2;
 					Sum_X1X2 += window[l] * SumPt2;
@@ -177,9 +177,9 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 				//if(x14 > 1)
 				//	x14 = x14;
 				//				((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);	
-				d_Cor[j + Index].loc_corrCoef = ((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);
-				d_Cor[j + Index].loc_Wind1 = window1;	
-				d_Cor[j + Index].loc_Wind2 = window2;	
+				Cor[j + Index].loc_corrCoef = ((Sum_X1X2 - x1 * x2/Wsize)/(Wsize - 1)/sdev1/sdev2);
+				Cor[j + Index].loc_Wind1 = window1;	
+				Cor[j + Index].loc_Wind2 = window2;	
 
 				j += gridDim.x * blockDim.x;
 			}
@@ -188,7 +188,7 @@ __global__ void XcrossCUDA_same(int* d_Pixels, pixelLoc* d_PL, PixelxCor* d_Cor,
 }
 
 
-__global__ void StdDev(int* d_Pixels, pixelLoc* d_PL,  int Wsize, int frames,  int yTotal, twoD numProcThds, int devThres)
+__global__ void StdDev(int* Pixels, pixelLoc* PL,  int Wsize, int frames,  int yTotal, twoD numProcThds, int devThres)
 {
 	unsigned int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
 	unsigned int yIdx = blockIdx.y * blockDim.y + threadIdx.y;
@@ -206,16 +206,16 @@ __global__ void StdDev(int* d_Pixels, pixelLoc* d_PL,  int Wsize, int frames,  i
 			x1 = x2 = 0.;
 			for(int i = 0; i < Wsize; i++)
 			{
-				temp = (float)d_Pixels[xyStart + i];
+				temp = (float)Pixels[xyStart + i];
 				x1 += temp;
 				x2 += temp * temp; 
 			}
 			temp = sqrtf((x2 - x1*x1/Wsize)/(Wsize-1));
-			d_PL[outStart].win = xyStart;
+			PL[outStart].win = xyStart;
 			if(temp > devThres)
-				d_PL[outStart].sDev = temp;
+				PL[outStart].sDev = temp;
 			else
-				d_PL[outStart].sDev = 0.0f;
+				PL[outStart].sDev = 0.0f;
 			yIdx += gridDim.y*blockDim.y;
 		}
 	}
@@ -252,12 +252,12 @@ int main()
 	pixelLoc *d_PL; //device version of h_PL
 	pixelLoc *PL,*h_PL = new pixelLoc[readSize];  //used to hold Stdev values
 	PixelxCor *h_Cor;
-	PixelxCor *d_Cor;  //device version of h_Cor
+	PixelxCor *d_Cor, *Cor;  //device version of h_Cor
 	cudaError_t  code;
 
 	//this MUST be here; flags must be set before any
 	//Cuda calls made; if Host Memory use by Device is used!!
-	cudaSetDeviceFlags(cudaDeviceMapHost);
+	//cudaSetDeviceFlags(cudaDeviceMapHost);
 
 	cudaGetDeviceCount(&deviceCount);
 	if (deviceCount == 0) 
@@ -292,12 +292,13 @@ int main()
 	//first = Tot_NumThreads/BlockWidth;
 	//second = BlockWidth;//threads per block
 
-	//cudaMallocManaged(&Pixels, sizeof(int) * readSize); 
-	//cudaMallocManaged(&PL, sizeof(pixelLoc) * readSize);
+	//using new Unified Memory in Cuda 6.0 with compute 3.0
+	HANDLE_ERROR(cudaMallocManaged(&Pixels, sizeof(int) * readSize)); 
+	HANDLE_ERROR(cudaMallocManaged(&PL, sizeof(pixelLoc) * readSize));
 
 
 	std::ifstream fin("d:/data/file_.bin", std::ios::binary);
-	fin.read(reinterpret_cast<char*>(h_Pixels), sizeof(int) * readSize);
+	fin.read(reinterpret_cast<char*>(Pixels), sizeof(int) * readSize);
 	fin.close();
 
 	//FILE* file;
@@ -320,17 +321,17 @@ int main()
 	cout<<"Prior to addition: "<<endl;
 
 	for(int i = 0; i < 10; i++){
-		cout<<h_Pixels[i]<<endl;
+		cout<<Pixels[i]<<endl;
 	}
 
 	//allocate memory space and copy data to device
-	HANDLE_ERROR(cudaMalloc((void**) &d_Pixels, sizeof(int) * readSize));
-	HANDLE_ERROR(cudaMalloc((void**) &d_PL, sizeof(pixelLoc) * readSize));
-	HANDLE_ERROR(cudaMemcpy((void*) d_Pixels, h_Pixels, sizeof(int) * readSize, cudaMemcpyHostToDevice));
+	//HANDLE_ERROR(cudaMalloc((void**) &d_Pixels, sizeof(int) * readSize));
+	//HANDLE_ERROR(cudaMalloc((void**) &d_PL, sizeof(pixelLoc) * readSize));
+	//HANDLE_ERROR(cudaMemcpy((void*) d_Pixels, h_Pixels, sizeof(int) * readSize, cudaMemcpyHostToDevice));
 	//	HANDLE_ERROR(cudaMemset((void*) d_PL, 0, sizeof(pixelLoc) * readSize));
 
 	//run kernel for finding Standard Deviation of data
-	StdDev<<<gridSize, blockSize>>>(d_Pixels, d_PL, h_Wsize, frames, totalPixs, numProcThds, devThres);
+	StdDev<<<gridSize, blockSize>>>(Pixels, PL, h_Wsize, frames, totalPixs, numProcThds, devThres);
 
 	//wait for all to finish and copy data to host
 	cudaDeviceSynchronize(); 
@@ -339,7 +340,7 @@ int main()
 		printf ("Cuda error -- %s\n", cudaGetErrorString(code)); 
 
 
-	HANDLE_ERROR(cudaMemcpy(h_PL, d_PL, sizeof(pixelLoc) * readSize, cudaMemcpyDeviceToHost));
+	//HANDLE_ERROR(cudaMemcpy(h_PL, d_PL, sizeof(pixelLoc) * readSize, cudaMemcpyDeviceToHost));
 
 	//compress list of points, removing points below threshold 
 	int j = 0;
@@ -349,32 +350,33 @@ int main()
 		//	{
 		//	cout<<"std = "<<h_PL[i].sDev<<"   "<<h_PL[i].win<<endl;
 		//	}
-		if(h_PL[i].sDev > 0)
-			h_PL[j++] = h_PL[i];
+		if(PL[i].sDev > 0)
+			PL[j++] = PL[i];
 	}
 
 	N = j;
-	cudaFree(d_PL);
-	cudaFree(d_Pixels);
-	HANDLE_ERROR(cudaMalloc((void**) &d_PL, sizeof(pixelLoc) * N));
-	HANDLE_ERROR(cudaMalloc((void**) &d_Pixels, sizeof(int) * readSize));
+	//cudaFree(d_PL);
+	//cudaFree(d_Pixels);
+	//HANDLE_ERROR(cudaMalloc((void**) &d_PL, sizeof(pixelLoc) * N));
+	//HANDLE_ERROR(cudaMalloc((void**) &d_Pixels, sizeof(int) * readSize));
 
 	const int N1 = N +1;
 	unsigned int const corSize = N1*(N1-1)/2;
 	unsigned int trmp = corSize*sizeof(PixelxCor);
-	double tp = pow(2.,32.)*sizeof(PixelxCor);
+	double tp = pow(2.,32.);
 	if(trmp > tp)
 		fprintf(stderr, "h_Cor is larger than 4GB!!\n");
 
 	//do the regular stuff for passing arrays to Kernel
-	HANDLE_ERROR(cudaMemcpy((void*) d_Pixels, h_Pixels, sizeof(int) * readSize, cudaMemcpyHostToDevice));
-	HANDLE_ERROR(cudaMemcpy((void*) d_PL, h_PL, sizeof(pixelLoc) * N, cudaMemcpyHostToDevice));
+	//HANDLE_ERROR(cudaMemcpy((void*) d_Pixels, h_Pixels, sizeof(int) * readSize, cudaMemcpyHostToDevice));
+	//HANDLE_ERROR(cudaMemcpy((void*) d_PL, h_PL, sizeof(pixelLoc) * N, cudaMemcpyHostToDevice));
 
 	//use memory on Host for Kernel not Device due to Size of Array
-	HANDLE_ERROR(cudaHostAlloc((void**)&h_Cor, sizeof(PixelxCor) * corSize, cudaHostAllocMapped));
+	//HANDLE_ERROR(cudaHostAlloc((void**)&h_Cor, sizeof(PixelxCor) * corSize, cudaHostAllocMapped));
+	HANDLE_ERROR(cudaMallocManaged((void**)&Cor, sizeof(PixelxCor) * corSize));
 
 	//get the address for Kernel write to output array
-	HANDLE_ERROR(cudaHostGetDevicePointer(&d_Cor, h_Cor, 0));
+	//HANDLE_ERROR(cudaHostGetDevicePointer(&d_Cor, h_Cor, 0));
 
 	//int *Indexing = new int[300000];
 	//for(int idx = 0; idx < N; idx++)
@@ -385,7 +387,7 @@ int main()
 	int  blocks = (N+thredMax-1)/thredMax;
 	if(blocks > gridLimit) blocks = gridLimit;
 
-	XcrossCUDA_same<<<blocks, thredMax, h_Wsize * sizeof(int)>>>(d_Pixels, d_PL,  d_Cor, N1, corSize, h_Wsize);
+	XcrossCUDA_same<<<blocks, thredMax, h_Wsize * sizeof(int)>>>(Pixels, PL,  Cor, N1, corSize, h_Wsize);
 
 	cudaDeviceSynchronize(); 
 	code = cudaGetLastError();
