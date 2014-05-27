@@ -335,9 +335,7 @@ int main()
 
 	//wait for all to finish and copy data to host
 	cudaDeviceSynchronize(); 
-	code = cudaGetLastError();
-	if (code != cudaSuccess) 
-		printf ("Cuda error -- %s\n", cudaGetErrorString(code)); 
+	HANDLE_ERROR(cudaGetLastError());
 
 
 	//HANDLE_ERROR(cudaMemcpy(h_PL, d_PL, sizeof(pixelLoc) * readSize, cudaMemcpyDeviceToHost));
@@ -390,11 +388,7 @@ int main()
 	XcrossCUDA_same<<<blocks, thredMax, h_Wsize * sizeof(int)>>>(Pixels, PL,  Cor, N1, corSize, h_Wsize);
 
 	cudaDeviceSynchronize(); 
-	code = cudaGetLastError();
-	if (code != cudaSuccess) 
-		printf ("Cuda error -- %s\n", cudaGetErrorString(code)); 
-	delete[] h_Pixels;
-	cudaFree(d_Pixels);
+	HANDLE_ERROR(cudaGetLastError());
 
 //	HANDLE_ERROR(cudaMemcpy(h_Cor, d_Cor, sizeof(float) * corSize, cudaMemcpyDeviceToHost));
 
@@ -439,10 +433,10 @@ int main()
 	fprintf(fpw, "Frm#\tPt#1\tPt#2\tXcorr\n");
 	for(int i = 0; i < corSize; i++)
 	{
-		Floc1 = h_Cor[i].loc_Wind1 % frames;
-		Floc2 = h_Cor[i].loc_Wind2 % frames;
-		Yloc1 = (h_Cor[i].loc_Wind1-Floc1)/frames;
-		Yloc2 = (h_Cor[i].loc_Wind2-Floc2)/frames;
+		Floc1 = Cor[i].loc_Wind1 % frames;
+		Floc2 = Cor[i].loc_Wind2 % frames;
+		Yloc1 = (Cor[i].loc_Wind1-Floc1)/frames;
+		Yloc2 = (Cor[i].loc_Wind2-Floc2)/frames;
 		//Xloc1 = Yloc1%imageX;
 		//Yloc1 = (Yloc1 - Xloc1)/imageX;
 		//Xloc2 = Yloc2%imageX;
@@ -456,7 +450,7 @@ int main()
 		//Xloc2 = floor((h_Cor[i].loc_Wind2-Floc2)/imageY);
 		//Yloc2 = (h_Cor[i].loc_Wind2-Floc2) - (Xloc2*imageY);
 		if(Floc1 == Floc2)
-			fprintf(fpw, "%d\t%d\t%d\t%f\n",Floc1, Yloc1, Yloc2,  h_Cor[i].loc_corrCoef);
+			fprintf(fpw, "%d\t%d\t%d\t%f\n",Floc1, Yloc1, Yloc2,  Cor[i].loc_corrCoef);
 		//		fprintf(fpw, "%d\t%d\t%d\t%d\t%f\n",Yloc1, Floc1,Yloc2, Floc2, h_Cor[i].loc_corrCoef);
 		//if (~Yloc2)
 		//	Yloc2=imageX;
@@ -467,8 +461,9 @@ int main()
 	}
 
 	fclose(fpw);
-	cudaFreeHost(h_Cor);
-	cudaFree(d_PL);
-	delete[] h_PL;
+	cudaFree(Cor);
+	cudaFree(PL);
+	cudaFree(Pixels);
+
 	return 0;
 }
