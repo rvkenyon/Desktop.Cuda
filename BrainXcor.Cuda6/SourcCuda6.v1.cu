@@ -25,10 +25,14 @@ typedef struct{
 	int y;
 } twoD;
 
-
 typedef struct{
-	unsigned int win;
-	float sDev;
+	int x;
+	int y;
+	int z;
+} threeD
+	typedef struct{
+		unsigned int win;
+		float sDev;
 } pixelLoc;
 
 typedef struct{
@@ -37,12 +41,12 @@ typedef struct{
 	float loc_corrCoef;
 } PixelxCor;
 
-const int Gy = 32; //grid y dimension
-const int Gx = 4; //grid x dimension
-const int Xt = 512; //thread x dimension
+//const int Gy = 32; //grid y dimension
+//const int Gx = 4; //grid x dimension
+const int Xt = 64; //thread x dimension
 //int const Gx = 1920; //grid x dimension
 //int const Xt = 1; //thread x dimension
-const int Yt = 1; //32//thread y dimension
+const int Yt = 4; //32//thread y dimension
 const int Fx = 2000; //number of frames
 const int h_Wsize = 50;
 
@@ -121,7 +125,7 @@ static void HandleError( cudaError_t err, const char *file, int line ) {
 
 
 __global__ void print_kernel() {
-    printf("Hello from block %d, thread %d\n", blockIdx.x, threadIdx.x);
+	printf("Hello from block %d, thread %d\n", blockIdx.x, threadIdx.x);
 }
 
 
@@ -188,72 +192,117 @@ __global__ void XcrossCUDA_same(int* Pixels, pixelLoc* PL, PixelxCor* Cor, int X
 }
 
 
-__global__ void StdDev(int* Pixels, pixelLoc* PL,  int Wsize, int frames,  int yTotal, twoD numProcThds, int devThres)
+__global__ void StdDev(int* Pixels, pixelLoc* PL,  int Wsize, int frames,  int outTotal, twoD numProcThds, int devThres)
 {
 	unsigned int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
 	unsigned int yIdx = blockIdx.y * blockDim.y + threadIdx.y;
 
-	float temp, x1=0.f, x2=0.f;
-	unsigned int xyStart; //where to start reading the window
-	unsigned int outStart;   //output file indexing
 	if(xIdx < numProcThds.x && yIdx < numProcThds.y)
 	{
-		while(yIdx < yTotal)
+		float temp, x1=0.f, x2=0.f;
+		unsigned int xyStart; //where to start reading the window
+		unsigned int outStart;  //output file index not to exceed outTotal
+		xyStart = xIdx + frames * yIdx;
+		outStart = xIdx + numProcThds.x * yIdx;
+		if(outStart > outTotal)
+			printf("exceed array size: Index=%d;X=%d; Y=%d\n",outStart,xIdx,yIdx);
+
+		for(int i = 0; i < Wsize; i++)
 		{
-			//Calculate Standard Deviation per window within XY pixel silo
-			xyStart = xIdx + frames * yIdx;
-			outStart = xIdx + numProcThds.x * yIdx;
-			x1 = x2 = 0.;
-			for(int i = 0; i < Wsize; i++)
-			{
-				temp = (float)Pixels[xyStart + i];
-				x1 += temp;
-				x2 += temp * temp; 
-			}
-			temp = sqrtf((x2 - x1*x1/Wsize)/(Wsize-1));
-			PL[outStart].win = xyStart;
-			if(temp > devThres)
-				PL[outStart].sDev = temp;
-			else
-				PL[outStart].sDev = 0.0f;
-			yIdx += gridDim.y*blockDim.y;
+			temp = (float)Pixels[xyStart + i];
+			x1 += temp;
+			x2 += temp * temp; 
 		}
+		temp = sqrtf((x2 - x1*x1/Wsize)/(Wsize-1));
+		PL[outStart].win = xyStart;
+		if(temp > devThres)
+			PL[outStart].sDev = temp;
+		else
+			PL[outStart].sDev = 0.0f;
+	}
+}
+
+__global__ void transposeNaive(int *odata, int* idata, int width, int height, twoD numProcThds)
+{
+	int xIndex = blockIdx.x*blockDim.x + threadIdx.x;
+	int yIndex = blockIdx.y*blockDim.y + threadIdx.y;
+
+	if(xIndex < numProcThds.x && yIndex < numProcThds.y)
+	{
+		int index_in = xIndex + width * yIndex;
+		int index_out = yIndex + height * xIndex;
+
+		odata[index_out] = idata[index_in];
+	}
+}
+
+__global__ void CorCuda(int Pixels, pixelLoc PL, PixelxCor Cor, int Wsize, threeD processors)
+{
+	unsigned int xIdx = blockIdx.x * blockDim.x + threadIdx.x;
+	unsigned int yIdx = blockIdx.y * blockDim.y + threadIdx.y;
+	unsigned int zIdx = blockIdx.z * blockDim.z + threadIdx.z;
+
+	//check processor in images array
+	if(xIdx < processors.x && yIdx < processors.y && zIdx < processors.z)
+	{
+		//check if stdev is above threshold to do correlation
+		if(PL[xIdx*yIdx][zIdx].sDev > 0)
+		{
+			//store current point window data
+		for(int ii = 0; ii < Wsize; ii++)
+				window[ii] = Pixels[xIdx*yIdx][zIdx + ii]; // check this...
+		//now correlate with all subsequent points in the frame
+			for(int i = 0; i + yIdx < processors.y; i++)
+			{
+				for(int j = 0; xIdx + j < processors.x; j++)
+					window2[i] = Pixels[xIdx+j*yIdx][zIdx];
+
+			}
+
+			for(int i=0; i < xxxx; i++)
+			{
+				// do the actual cross correlation now
+				for (int l = 0; l < Wsize; l++)
+				{
+					SumPt2 = Pixels[window2 + l];
+					x1 += window[l];
+					x2 += SumPt2;
+					Sum_X1X2 += window[l] * SumPt2;
+				}
+				window[ii] = Pixels[xIdx][yIdx][zIdx + ii]; // check this...
+			}
+		}
+
 	}
 }
 
 
 int main()
 {
-	twoD numProcThds;
-	numProcThds.x = Fx - h_Wsize; //used in Stdev kernel for total number threads X direction
-	numProcThds.y = Gy*Yt;//used in Stdev kernel for total number threads Y direction
-
-	const int count = Fx*Gy*Yt; //Fx=MaxX, Gy * Yt = maxY for data file
-	const int imageX = 172;  //size of Image used ... columns
-	const int imageY = 130; //size of Image used ... rows
-	const int totalPixs = imageX * imageY; //total pixel number for image
-	const int readSize = Fx * totalPixs; //total memory size of all data
-	int devThres = 35;
-	int procsrTot = numProcThds.x*numProcThds.y;
-	int Xloc1, Yloc1, Floc1; //used for X,Y,Frame for Point 1
-	int Xloc2, Yloc2, Floc2; //used for X,Y,Frame for Point 2
-	int deviceCount;
-	int *d_Pixels;   //device version of h_Pixels
-	int *h_Pixels = new int[readSize];  //used to hold pixel values
-	int thredMax;
 	int frames = Fx;
-	int i = 0, N;
-	int size_file=0;
-	int abc = sizeof(int);
-	int asd=sizeof(pixelLoc);
-	int dev = 0;
-	int *Pixels;
 
-	pixelLoc *d_PL; //device version of h_PL
-	pixelLoc *PL,*h_PL = new pixelLoc[readSize];  //used to hold Stdev values
-	PixelxCor *h_Cor;
-	PixelxCor *d_Cor, *Cor;  //device version of h_Cor
+	const int imageX = 172;				//size of Image used ... columns
+	const int imageY = 130;				//size of Image used ... rows
+	const int totalPixs = imageX * imageY; //total pixel number for image
+	const int readSize = frames * totalPixs; //total memory size of all data
+	int Xloc1, Yloc1, Floc1;			//used for X,Y,Frame for Point 1
+	int Xloc2, Yloc2, Floc2;			//used for X,Y,Frame for Point 2
+	int deviceCount;
+	int thredMax;
+	int devThres = 35;
+	int N;
+	//	int size_file=0;
+	int dev = 0;
 	cudaError_t  code;
+
+	twoD numProcThds;
+	numProcThds.x = frames - h_Wsize;	//used in Stdev kernel for total number threads X direction
+	numProcThds.y = totalPixs;			//used in Stdev kernel for total number threads Y direction
+	int procsrTot = numProcThds.x*numProcThds.y; //size of output file elements for STDv
+
+	int *Pixels;						//used to hold pixel values
+	pixelLoc *PL;						//used to hold Stdev values
+	PixelxCor *Cor;						//used to hold Corr values
 
 	//this MUST be here; flags must be set before any
 	//Cuda calls made; if Host Memory use by Device is used!!
@@ -265,11 +314,8 @@ int main()
 		fprintf(stderr, "error: no devices supporting CUDA.\n");
 		exit(EXIT_FAILURE);
 	}
-
 	cudaSetDevice(dev);
 	cudaDeviceProp devProps;
-
-
 	if (cudaGetDeviceProperties(&devProps, dev) == 0)
 	{
 		printf("Using device %d:\n", dev);
@@ -279,14 +325,14 @@ int main()
 			(int)devProps.clockRate);
 	}
 
-//	print_kernel<<<10, 10>>>();
-//    cudaDeviceSynchronize();
+	//	print_kernel<<<10, 10>>>();
+	//    cudaDeviceSynchronize();
 
-	const int gridLimit = devProps.maxGridSize[0];
-	thredMax = devProps.maxThreadsPerBlock; //devProps.maxThreadsPerBlock;
+	//const int gridLimit = devProps.maxGridSize[0];
+	//thredMax = devProps.maxThreadsPerBlock; //devProps.maxThreadsPerBlock;
 
 	const dim3 blockSize(Xt, Yt, 1);  //TODO
-	const dim3 gridSize(Gx,Gy, 1);  //TODO
+	const dim3 gridSize((frames/Xt)+1,(totalPixs/Yt)+1, 1);  //TODO
 	//int Tot_NumThreads;
 	//int BlockWidth;
 	//first = Tot_NumThreads/BlockWidth;
@@ -294,7 +340,7 @@ int main()
 
 	//using new Unified Memory in Cuda 6.0 with compute 3.0
 	HANDLE_ERROR(cudaMallocManaged(&Pixels, sizeof(int) * readSize)); 
-	HANDLE_ERROR(cudaMallocManaged(&PL, sizeof(pixelLoc) * readSize));
+	HANDLE_ERROR(cudaMallocManaged(&PL, sizeof(pixelLoc) * procsrTot));
 
 
 	std::ifstream fin("d:/data/file_.bin", std::ios::binary);
@@ -316,13 +362,10 @@ int main()
 	//	h_Pixels[i] = int(temp);
 	//	size_file++;
 	//}
-	int yTotal;
 
 	cout<<"Prior to addition: "<<endl;
-
-	for(int i = 0; i < 10; i++){
+	for(int i = 0; i < 10; i++)
 		cout<<Pixels[i]<<endl;
-	}
 
 	//allocate memory space and copy data to device
 	//HANDLE_ERROR(cudaMalloc((void**) &d_Pixels, sizeof(int) * readSize));
@@ -331,17 +374,14 @@ int main()
 	//	HANDLE_ERROR(cudaMemset((void*) d_PL, 0, sizeof(pixelLoc) * readSize));
 
 	//run kernel for finding Standard Deviation of data
-	StdDev<<<gridSize, blockSize>>>(Pixels, PL, h_Wsize, frames, totalPixs, numProcThds, devThres);
+	StdDev<<<gridSize, blockSize>>>(Pixels, PL, h_Wsize, frames, procsrTot, numProcThds, devThres);
 
 	//wait for all to finish and copy data to host
 	cudaDeviceSynchronize(); 
 	HANDLE_ERROR(cudaGetLastError());
 
-
-	//HANDLE_ERROR(cudaMemcpy(h_PL, d_PL, sizeof(pixelLoc) * readSize, cudaMemcpyDeviceToHost));
-
 	//compress list of points, removing points below threshold 
-	int j = 0;
+	int compPLtot = 0;
 	for(int i = 0; i < readSize; i++)
 	{
 		//if(h_PL[i].sDev < 1 && h_PL[i].win != -1)
@@ -349,21 +389,32 @@ int main()
 		//	cout<<"std = "<<h_PL[i].sDev<<"   "<<h_PL[i].win<<endl;
 		//	}
 		if(PL[i].sDev > 0)
-			PL[j++] = PL[i];
+			PL[compPLtot++] = PL[i];
 	}
 
-	N = j;
+	N = compPLtot;
 	//cudaFree(d_PL);
 	//cudaFree(d_Pixels);
 	//HANDLE_ERROR(cudaMalloc((void**) &d_PL, sizeof(pixelLoc) * N));
 	//HANDLE_ERROR(cudaMalloc((void**) &d_Pixels, sizeof(int) * readSize));
 
+	int *pixTrans = new int [50];
+	twoD numPixElmts = {frames, totalPixs};
+	const dim3 blockSize2(Xt, Yt, 1);  //TODO
+	const dim3 gridSize2((imageX/Xt)+1,(imageY/Yt)+1, 1);  //TODO
+	//int Tot_NumThreads;
+	//int BlockWidth;
+	//first = Tot_NumThreads/BlockWidth;
+	//second = BlockWidth;//threads per block
+
+	transposeNaive<<<gridSize2, blockSize2>>>(Pixels, pixTrans, frames, totalPixs, numPixElmts);
+
 	const int N1 = N +1;
 	unsigned int const corSize = N1*(N1-1)/2;
-	unsigned int trmp = corSize*sizeof(PixelxCor);
-	double tp = pow(2.,32.);
-	if(trmp > tp)
-		fprintf(stderr, "h_Cor is larger than 4GB!!\n");
+	//unsigned int trmp = corSize*sizeof(PixelxCor);
+	//double tp = pow(2.,32.);
+	//if(trmp > tp)
+	//	fprintf(stderr, "h_Cor is larger than 4GB!!\n");
 
 	//do the regular stuff for passing arrays to Kernel
 	//HANDLE_ERROR(cudaMemcpy((void*) d_Pixels, h_Pixels, sizeof(int) * readSize, cudaMemcpyHostToDevice));
@@ -381,16 +432,29 @@ int main()
 	//	Indexing[idx] = corSize - ((N1-idx) * (N1-idx - 1))/2; //this needs to be checked
 
 	//now do xcorrelation
+	const dim3 blockSize3(Xt, Yt, 1);  //TODO
+	const dim3 gridSize3((imageX/Xt)+1,(imageY/Yt)+1, frames);  //TODO
+	//int Tot_NumThreads;
+	//int BlockWidth;
+	//first = Tot_NumThreads/BlockWidth;
+	//second = BlockWidth;//threads per block
+	threeD processors = {imageX, imageY, frames};
+
+	CorCuda(Pixels,PL,Cor,h_Wsize,processors);
+
+	//transpose pixel array
+
+
 	thredMax /= 2;
 	int  blocks = (N+thredMax-1)/thredMax;
-	if(blocks > gridLimit) blocks = gridLimit;
+	//if(blocks > gridLimit) blocks = gridLimit;
 
 	XcrossCUDA_same<<<blocks, thredMax, h_Wsize * sizeof(int)>>>(Pixels, PL,  Cor, N1, corSize, h_Wsize);
 
 	cudaDeviceSynchronize(); 
 	HANDLE_ERROR(cudaGetLastError());
 
-//	HANDLE_ERROR(cudaMemcpy(h_Cor, d_Cor, sizeof(float) * corSize, cudaMemcpyDeviceToHost));
+	//	HANDLE_ERROR(cudaMemcpy(h_Cor, d_Cor, sizeof(float) * corSize, cudaMemcpyDeviceToHost));
 
 	//	int ja = 0;
 	//	float *pp = new float[300000];
